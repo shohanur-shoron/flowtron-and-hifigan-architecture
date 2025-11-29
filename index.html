@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bangla TTS: Active Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600;800&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Slate 900 */
+            cursor: default;
+            overflow-x: hidden;
+        }
+
+        /* --- BACKGROUND --- */
+        .bg-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
+        }
+
+        /* --- CONNECTING LINES --- */
+        .flow-line {
+            background-image: linear-gradient(to bottom, #3b82f6 50%, transparent 50%);
+            background-size: 2px 20px;
+            animation: flowScroll 1s linear infinite;
+        }
+        @keyframes flowScroll {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 20px; }
+        }
+
+        /* --- GLASS NODES --- */
+        .glass-node {
+            background: rgba(30, 41, 59, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+        }
+        .glass-node:hover {
+            transform: translateY(-5px) scale(1.01);
+            border-color: rgba(56, 189, 248, 0.5); 
+            box-shadow: 0 20px 40px -10px rgba(56, 189, 248, 0.15);
+            z-index: 50;
+        }
+
+        /* --- THE SHAPE-SHIFTING OVERLAY BOX --- */
+        #active-overlay {
+            position: absolute;
+            z-index: 40; /* Below Tooltip (9999) but above nodes */
+            pointer-events: none; /* Allows hovering active nodes underneath */
+            background: rgba(56, 189, 248, 0.1); /* Light blue tint */
+            border: 2px solid #38bdf8;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.4), inset 0 0 20px rgba(56, 189, 248, 0.2);
+            border-radius: 12px;
+            opacity: 0;
+            
+            /* The Smooth Morphing Magic */
+            transition: 
+                top 1s cubic-bezier(0.25, 1, 0.5, 1), 
+                left 1s cubic-bezier(0.25, 1, 0.5, 1),
+                width 1s cubic-bezier(0.25, 1, 0.5, 1),
+                height 1s cubic-bezier(0.25, 1, 0.5, 1),
+                opacity 0.3s ease,
+                border-color 0.5s ease;
+        }
+
+        /* --- TOOLTIP --- */
+        #cursor-tooltip {
+            position: fixed;
+            top: 0; left: 0;
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            will-change: transform;
+        }
+    </style>
+</head>
+<body class="text-slate-200 min-h-screen flex flex-col items-center py-10">
+
+    <!-- Background Decoration -->
+    <div class="fixed inset-0 bg-grid z-0 pointer-events-none"></div>
+
+    <!-- THE OVERLAY BOX (This moves and reshapes) -->
+    <div id="active-overlay"></div>
+
+    <!-- Status Bar for Simulation -->
+    <div id="sim-status" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 px-6 py-2 bg-slate-900/90 backdrop-blur border border-slate-700 rounded-full text-xs font-mono uppercase tracking-widest text-emerald-400 shadow-2xl transition-all duration-300 opacity-0 translate-y-10">
+        System Idle
+    </div>
+
+    <!-- Controls -->
+    <div class="fixed top-5 right-5 z-50">
+        <button id="toggle-btn" onclick="toggleSimulation()" class="flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-emerald-500 to-cyan-600 rounded-full font-bold text-white shadow-lg hover:scale-105 transition active:scale-95 border border-white/20">
+            <span id="btn-icon">▶</span>
+            <span id="btn-text">Start Simulation</span>
+        </button>
+    </div>
+
+    <!-- Header -->
+    <div class="text-center mb-16 relative z-10 px-4">
+        <h1 class="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 tracking-tight filter drop-shadow-lg">Bangla TTS Pipeline Architecture Visualization</h1>
+        <p class="text-slate-400 mt-3 text-sm font-mono uppercase tracking-[0.3em]">Flowtron <span class="text-slate-600 px-2">X</span> HiFi-GAN</p>
+    </div>
+
+    <!-- Main Pipeline Container -->
+    <div id="pipeline-container" class="relative flex flex-col items-center w-full max-w-3xl px-6 pb-20 z-10">
+        <!-- JS Injects Components Here -->
+    </div>
+
+    <!-- Tooltip -->
+    <div id="cursor-tooltip" class="glass-node p-5 rounded-2xl border-l-4 border-l-cyan-400 bg-slate-900/95 text-left w-80 shadow-2xl">
+        <div class="flex items-center justify-between mb-1">
+            <h3 id="tt-title" class="font-bold text-cyan-300 text-lg">Title</h3>
+            <span class="text-[10px] font-mono text-slate-500 opacity-50 border border-slate-700 px-1 rounded">INFO</span>
+        </div>
+        <p id="tt-desc" class="text-[10px] text-slate-400 font-mono mb-3 uppercase tracking-wider font-bold">Category</p>
+        <p id="tt-info" class="text-sm text-slate-300 leading-relaxed font-light">Description...</p>
+        <div class="mt-4 pt-3 border-t border-white/10 grid grid-cols-2 gap-4">
+            <div>
+                <span class="text-[9px] text-slate-500 block font-bold tracking-widest uppercase">Input</span>
+                <span id="tt-in" class="text-xs font-mono text-emerald-400">...</span>
+            </div>
+            <div>
+                <span class="text-[9px] text-slate-500 block font-bold tracking-widest uppercase">Output</span>
+                <span id="tt-out" class="text-xs font-mono text-amber-400">...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION
+        // ==========================================
+
+        /* 
+           *********************************************************
+           *              ANIMATION SPEED CONTROL                  *
+           *  Change this value to make it slower or faster.       *
+           *  1.0 = Normal Speed                                   *
+           *  2.0 = 2x Slower (Recommended for details)            *
+           *  0.5 = 2x Faster                                      *
+           *********************************************************
+        */
+        const SPEED_MULTIPLIER = 1.0; 
+
+        
+        // ==========================================
+        // 1. PIPELINE DATA
+        // ==========================================
+        const pipeline = [
+            {
+                id: 'input-group',
+                type: 'group',
+                label: 'System Inputs',
+                section: 'flowtron',
+                items: [
+                    { name: 'Bangla Text', icon: '🇧🇩' },
+                    { name: 'Speaker ID', icon: '👤' },
+                    { name: 'Noise (z)', icon: '🎲' }
+                ],
+                tooltip: {
+                    title: "Conditioning Inputs", desc: "Flowtron Inputs",
+                    info: "Bangla text is normalized and phonemized. Speaker ID selects the voice embedding. Random Noise serves as the clay for generation.",
+                    in: "Text/Int", out: "Vectors"
+                }
+            },
+            {
+                id: 'flow-block',
+                type: 'complex-block',
+                label: 'Flowtron Steps',
+                sub: 'Affine Coupling x K',
+                color: 'border-emerald-500/50 bg-emerald-900/10 shadow-[0_0_30px_-10px_rgba(16,185,129,0.2)]',
+                section: 'flowtron',
+                details: ['Attn LSTM', 'Decoder LSTM', 'Zero-Glow'],
+                tooltip: {
+                    title: "Affine Coupling", desc: "Invertible Flow",
+                    info: "The core acoustic model. It iteratively transforms the noise distribution into the speech distribution, conditioned by the text alignment.",
+                    in: "Latent z", out: "Latent z'"
+                }
+            },
+            {
+                id: 'mel-spec',
+                type: 'bridge',
+                label: 'Mel-Spectrogram',
+                sub: 'Intermediate Representation',
+                icon: '📊',
+                tooltip: {
+                    title: "Mel-Spectrogram", desc: "Acoustic Feature",
+                    info: "A visual representation of the audio frequencies over time. This is the output of Flowtron and the input for HiFi-GAN.",
+                    in: "Flowtron", out: "HiFi-GAN"
+                }
+            },
+            {
+                id: 'hifi-input',
+                type: 'simple',
+                label: 'Pre-Conv1D',
+                sub: 'Channel Expansion',
+                section: 'hifigan',
+                tooltip: {
+                    title: "Initial Convolution", desc: "Feature Extraction",
+                    info: "Expands 80 Mel-channels to 512 hidden channels for processing.",
+                    in: "80 Channels", out: "512 Channels"
+                }
+            },
+            {
+                id: 'upsample-1',
+                type: 'complex-block',
+                label: 'Upsample Block 1',
+                sub: 'Rate: 8x',
+                color: 'border-amber-500/50 bg-amber-900/10',
+                section: 'hifigan',
+                details: ['Transposed Conv', 'MRF ResBlock'],
+                tooltip: {
+                    title: "Upsampling x8", desc: "Generator Block",
+                    info: "Increases sequence length by 8x. Fills gaps with learned patterns.",
+                    in: "Length L", out: "Length 8L"
+                }
+            },
+            {
+                id: 'upsample-2',
+                type: 'complex-block',
+                label: 'Upsample Block 2',
+                sub: 'Rate: 8x',
+                color: 'border-amber-500/50 bg-amber-900/10',
+                section: 'hifigan',
+                details: ['Transposed Conv', 'MRF ResBlock'],
+                tooltip: {
+                    title: "Upsampling x8", desc: "Generator Block",
+                    info: "Second 8x expansion. Multi-Receptive Fields (MRF) ensure texture quality.",
+                    in: "Length 8L", out: "Length 64L"
+                }
+            },
+            {
+                id: 'final-conv',
+                type: 'simple',
+                label: 'Post-Conv & Tanh',
+                sub: 'Waveform Construction',
+                section: 'hifigan',
+                tooltip: {
+                    title: "Final Activation", desc: "Output Layer",
+                    info: "Collapses channels to 1 (Mono) and normalizes audio amplitude.",
+                    in: "Channels", out: "Waveform"
+                }
+            },
+            {
+                id: 'audio-out',
+                type: 'output',
+                label: 'Bangla Audio',
+                sub: 'Raw Waveform (.wav)',
+                icon: '🔊',
+                tooltip: {
+                    title: "Generated Speech", desc: "Final Output",
+                    info: "High fidelity, 22,050Hz raw audio output.",
+                    in: "Digital", out: "Sound"
+                }
+            }
+        ];
+
+        // ==========================================
+        // 2. RENDERING LOGIC
+        // ==========================================
+        const container = document.getElementById('pipeline-container');
+        const createArrow = () => {
+            const div = document.createElement('div');
+            div.className = "h-12 w-0.5 flow-line my-1 relative opacity-50";
+            return div;
+        };
+
+        pipeline.forEach((item, index) => {
+            const node = document.createElement('div');
+            node.id = item.id; // Critical for animation targeting
+            let baseClasses = "glass-node w-full p-6 rounded-2xl relative flex flex-col items-center justify-center cursor-help group";
+            
+            // Badge
+            let badgeColor = item.section === 'flowtron' ? 'text-emerald-400 border-emerald-500' : 'text-amber-400 border-amber-500';
+            let badgeName = item.section === 'flowtron' ? 'FLOWTRON' : (item.section === 'hifigan' ? 'HiFi-GAN' : '');
+            let badgeHTML = badgeName ? `<div class="absolute -left-3 top-6 -rotate-90 origin-center text-[9px] font-bold tracking-widest px-2 py-0.5 border rounded-full ${badgeColor} opacity-50 hidden md:block backdrop-blur-md bg-slate-900/50">${badgeName}</div>` : '';
+
+            if (item.type === 'group') {
+                node.className = "w-full grid grid-cols-3 gap-4";
+                node.innerHTML = item.items.map(i => `
+                    <div class="glass-node p-4 rounded-xl text-center border-t-2 border-t-emerald-500 hover:bg-slate-800/80 transition flex flex-col items-center">
+                        <div class="text-3xl mb-2 grayscale group-hover:grayscale-0 transition">${i.icon}</div>
+                        <div class="text-xs font-bold text-slate-300">${i.name}</div>
+                    </div>
+                `).join('');
+                node.classList.remove('glass-node', 'p-6', 'flex-col'); 
+            } 
+            else if (item.type === 'complex-block') {
+                node.className = `${baseClasses} ${item.color} border-l-4`;
+                node.innerHTML = `${badgeHTML}<div class="text-lg font-bold text-slate-100 group-hover:text-white transition tracking-tight">${item.label}</div><div class="text-xs text-slate-400 font-mono mb-4 opacity-80">${item.sub}</div><div class="flex gap-2 w-full justify-center">${item.details.map(d => `<div class="px-2 py-1 bg-slate-950/50 rounded text-[9px] uppercase font-bold tracking-wider border border-white/5 text-slate-400">${d}</div>`).join('')}</div>`;
+            }
+            else if (item.type === 'bridge') {
+                node.className = "w-full p-6 my-4 bg-gradient-to-r from-emerald-900/30 via-slate-800/50 to-amber-900/30 border border-white/5 flex items-center justify-between relative overflow-hidden glass-node rounded-xl";
+                node.innerHTML = `<div class="flex items-center gap-5 z-10"><div class="text-4xl animate-pulse filter drop-shadow-[0_0_10px_rgba(167,139,250,0.5)]">${item.icon}</div><div><div class="text-xl font-bold text-white tracking-tight">${item.label}</div><div class="text-sm text-purple-200 opacity-70 font-mono">${item.sub}</div></div></div><div class="flex items-end gap-1.5 h-10 opacity-60 z-10"><div class="w-1.5 bg-purple-400 h-4 animate-[bounce_1s_infinite]"></div><div class="w-1.5 bg-purple-400 h-8 animate-[bounce_1.2s_infinite]"></div><div class="w-1.5 bg-purple-400 h-6 animate-[bounce_0.8s_infinite]"></div><div class="w-1.5 bg-purple-400 h-10 animate-[bounce_1.5s_infinite]"></div><div class="w-1.5 bg-purple-400 h-5 animate-[bounce_1.1s_infinite]"></div></div>`;
+            }
+            else if (item.type === 'output') {
+                node.className = `${baseClasses} border-green-500 bg-gradient-to-br from-green-900/30 to-slate-900`;
+                node.innerHTML = `<div class="text-5xl mb-3 filter drop-shadow-lg">${item.icon}</div><div class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-200 to-white">${item.label}</div><div class="text-sm text-green-400 font-mono mt-1 opacity-75">${item.sub}</div>`;
+            }
+            else {
+                node.className = `${baseClasses} border-l-4 border-l-slate-600 bg-slate-800/40`;
+                node.innerHTML = `${badgeHTML}<div class="font-bold text-slate-200 group-hover:text-white transition">${item.label}</div><div class="text-[10px] text-slate-500 font-mono uppercase tracking-widest mt-1">${item.sub}</div>`;
+            }
+
+            node.dataset.tooltip = JSON.stringify(item.tooltip);
+            container.appendChild(node);
+            if (index < pipeline.length - 1 && item.type !== 'bridge') container.appendChild(createArrow());
+            else if (item.type === 'bridge') {
+                const spacer = document.createElement('div');
+                spacer.className = "h-10 w-0.5 bg-gradient-to-b from-purple-500/50 to-amber-500/50 opacity-50 my-1";
+                container.appendChild(spacer);
+            }
+        });
+
+        // ==========================================
+        // 3. TOOLTIP PHYSICS
+        // ==========================================
+        const tooltip = document.getElementById('cursor-tooltip');
+        const ttElements = {
+            title: document.getElementById('tt-title'), desc: document.getElementById('tt-desc'),
+            info: document.getElementById('tt-info'), in: document.getElementById('tt-in'), out: document.getElementById('tt-out')
+        };
+        let mouse = { x: 0, y: 0 }, tool = { x: 0, y: 0 }, isHovering = false;
+
+        document.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+        function animateTooltip() {
+            if (isHovering) {
+                tool.x += ((mouse.x + 25) - tool.x) * 0.15;
+                tool.y += ((mouse.y + 25) - tool.y) * 0.15;
+                tooltip.style.transform = `translate3d(${tool.x}px, ${tool.y}px, 0)`;
+                tooltip.style.opacity = '1';
+            } else {
+                tooltip.style.opacity = '0';
+            }
+            requestAnimationFrame(animateTooltip);
+        }
+        animateTooltip();
+
+        document.querySelectorAll('.glass-node, [data-tooltip]').forEach(node => {
+            const dataStr = node.dataset.tooltip || (node.parentElement && node.parentElement.dataset.tooltip);
+            if (dataStr) {
+                node.addEventListener('mouseenter', () => {
+                    const data = JSON.parse(dataStr);
+                    ttElements.title.innerText = data.title;
+                    ttElements.title.className = `font-bold text-lg ${data.in.includes('Text') || data.section === 'flowtron' ? 'text-emerald-300' : 'text-amber-300'}`;
+                    ttElements.desc.innerText = data.desc;
+                    ttElements.info.innerText = data.info;
+                    ttElements.in.innerText = data.in;
+                    ttElements.out.innerText = data.out;
+                    isHovering = true;
+                    if (Math.abs(tool.x - mouse.x) > 500) { tool.x = mouse.x + 20; tool.y = mouse.y + 20; }
+                });
+                node.addEventListener('mouseleave', () => { isHovering = false; });
+            }
+        });
+
+        // ==========================================
+        // 4. ANIMATION LOGIC (Shape Shifter)
+        // ==========================================
+        const overlay = document.getElementById('active-overlay');
+        const statusEl = document.getElementById('sim-status');
+        const toggleBtn = document.getElementById('toggle-btn');
+        const btnText = document.getElementById('btn-text');
+        const btnIcon = document.getElementById('btn-icon');
+        
+        let isPlaying = false;
+        let activeProcess = null;
+
+        // Calculates delays based on the global SPEED_MULTIPLIER
+        const getDelay = (ms) => new Promise(res => setTimeout(res, ms * SPEED_MULTIPLIER));
+
+        function highlightNode(elementId, color = '#38bdf8') {
+            const el = document.getElementById(elementId);
+            if (!el) return;
+
+            const rect = el.getBoundingClientRect();
+            // We use absolute positioning relative to document
+            const scrollTop = window.scrollY || document.documentElement.scrollTop;
+            
+            overlay.style.width = `${rect.width}px`;
+            overlay.style.height = `${rect.height}px`;
+            overlay.style.top = `${rect.top + scrollTop}px`;
+            overlay.style.left = `${rect.left}px`;
+            
+            overlay.style.borderColor = color;
+            overlay.style.boxShadow = `0 0 20px ${color}66, inset 0 0 20px ${color}33`; // Hex opacity
+            overlay.style.opacity = '1';
+        }
+
+        async function updateStatus(text) {
+            statusEl.innerText = text;
+            statusEl.className = "fixed bottom-8 left-1/2 -translate-x-1/2 z-50 px-6 py-2 bg-slate-900/90 backdrop-blur border border-slate-500 rounded-full text-xs font-mono uppercase tracking-widest text-white shadow-2xl transition-all duration-300 opacity-1 translate-y-0";
+        }
+
+        async function runPipeline() {
+            while(isPlaying) {
+                
+                // 1. INPUT
+                if(!isPlaying) break;
+                updateStatus("Step 1: Ingesting Inputs...");
+                highlightNode('input-group', '#60a5fa'); // Blue
+                await getDelay(1000);
+
+                // 2. FLOWTRON
+                if(!isPlaying) break;
+                updateStatus("Step 2: Flowtron Inference...");
+                highlightNode('flow-block', '#34d399'); // Emerald
+                await getDelay(1500);
+
+                // 3. SPECTROGRAM
+                if(!isPlaying) break;
+                updateStatus("Step 3: Generating Spectrogram...");
+                highlightNode('mel-spec', '#a78bfa'); // Purple
+                await getDelay(1200);
+
+                // 4. HIFI INPUT
+                if(!isPlaying) break;
+                updateStatus("Step 4: Vocoder Preparation...");
+                highlightNode('hifi-input', '#fbbf24'); // Amber
+                await getDelay(800);
+
+                // 5. UPSAMPLE
+                if(!isPlaying) break;
+                updateStatus("Step 5: Upsampling Features...");
+                highlightNode('upsample-1', '#f59e0b');
+                await getDelay(600);
+                if(!isPlaying) break;
+                highlightNode('upsample-2', '#f59e0b');
+                await getDelay(600);
+
+                // 6. OUTPUT
+                if(!isPlaying) break;
+                updateStatus("Step 6: Synthesizing Waveform...");
+                highlightNode('audio-out', '#4ade80'); // Green
+                await getDelay(1000);
+
+                // PAUSE before loop
+                if(!isPlaying) break;
+                overlay.style.opacity = '0';
+                statusEl.style.opacity = '0';
+                await getDelay(500);
+            }
+            
+            // Cleanup if stopped
+            overlay.style.opacity = '0';
+            statusEl.style.opacity = '0';
+        }
+
+        function toggleSimulation() {
+            isPlaying = !isPlaying;
+            
+            if(isPlaying) {
+                btnText.innerText = "Stop Simulation";
+                btnIcon.innerText = "⏹";
+                toggleBtn.classList.replace('from-emerald-500', 'from-red-500');
+                toggleBtn.classList.replace('to-cyan-600', 'to-red-600');
+                runPipeline();
+            } else {
+                btnText.innerText = "Start Simulation";
+                btnIcon.innerText = "▶";
+                toggleBtn.classList.replace('from-red-500', 'from-emerald-500');
+                toggleBtn.classList.replace('to-red-600', 'to-cyan-600');
+                // The loop breaks automatically via check flags
+            }
+        }
+
+    </script>
+</body>
+</html>
